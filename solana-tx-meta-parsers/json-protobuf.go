@@ -274,6 +274,8 @@ func ProtobufTransactionStatusMetaToUi(meta *confirmed_block.TransactionStatusMe
 				//     pub post_balance: u64, // Account balance in lamports after `lamports` was applied
 				//     pub reward_type: Option<RewardType>,
 				//     pub commission: Option<u8>, // Vote account commission when the reward was credited, only present for voting and staking rewards
+				//     #[serde(skip_serializing_if = "Option::is_none")]
+				//     pub commission_bps: Option<u16>, // Vote account commission in basis points (SIMD-0291)
 				// }
 
 				for _, reward := range meta.Rewards {
@@ -309,6 +311,16 @@ func ProtobufTransactionStatusMetaToUi(meta *confirmed_block.TransactionStatusMe
 							}
 						} else {
 							uiReward.Null("commission")
+						}
+						// commissionBps (SIMD-0291) is skipped rather than nulled when
+						// absent, matching skip_serializing_if in agave. It is also
+						// skipped when it does not parse, so a bad value does not read
+						// as a real 0% commission.
+						if reward.CommissionBps != "" {
+							parsedCommissionBps, err := strconv.ParseUint(reward.CommissionBps, 10, 16)
+							if err == nil {
+								uiReward.Uint("commissionBps", parsedCommissionBps)
+							}
 						}
 					}
 					arr.AddObject(uiReward)
