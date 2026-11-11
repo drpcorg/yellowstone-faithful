@@ -446,7 +446,7 @@ func (final *EncodedTransactionWithStatusMeta) parseInnerInstruction(instruction
 
 	// Decode base58 data
 	data, err := base58.Decode(dataStr)
-	if err != nil {
+	if err != nil && dataStr != "" {
 		return instruction, nil
 	}
 
