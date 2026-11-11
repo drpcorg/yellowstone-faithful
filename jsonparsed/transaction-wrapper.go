@@ -3,6 +3,7 @@ package jsonparsed
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/gagliardetto/solana-go"
 )
@@ -13,9 +14,10 @@ type Transaction struct {
 }
 
 type Message struct {
-	AccountKeys     []AccountKey      `json:"accountKeys"`
-	Instructions    []json.RawMessage `json:"instructions"`
-	RecentBlockhash string            `json:"recentBlockhash"`
+	AccountKeys         []AccountKey                           `json:"accountKeys"`
+	AddressTableLookups *solana.MessageAddressTableLookupSlice `json:"addressTableLookups,omitempty"`
+	Instructions        []json.RawMessage                      `json:"instructions"`
+	RecentBlockhash     string                                 `json:"recentBlockhash"`
 	// Set only for v1 (SIMD-0385) messages.
 	TransactionConfig *solana.TransactionConfig `json:"transactionConfig,omitempty"`
 }
@@ -27,6 +29,40 @@ type AccountKey struct {
 	Writable bool   `json:"writable"`
 }
 
+var reservedAccountKeys = map[solana.PublicKey]bool{
+	solana.MustPublicKeyFromBase58("AddressLookupTab1e1111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("BPFLoader2111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("BPFLoader1111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("BPFLoaderUpgradeab1e11111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("ComputeBudget111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Config1111111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Ed25519SigVerify111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Feature111111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("LoaderV411111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("NativeLoader1111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("KeccakSecp256k11111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Secp256r1SigVerify1111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("StakeConfig11111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Stake11111111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("11111111111111111111111111111111"):            true,
+	solana.MustPublicKeyFromBase58("Vote111111111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Sysvar1111111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarC1ock11111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarEpochRewards1111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarEpochSchedu1e111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarFees111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("Sysvar1nstructions1111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarLastRestartS1ot1111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarRecentB1ockHashes11111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarRent111111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarRewards111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarS1otHashes111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarS1otHistory11111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("SysvarStakeHistory1111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("ZkTokenProof1111111111111111111111111111111"): true,
+	solana.MustPublicKeyFromBase58("ZkE1Gama1Proof11111111111111111111111111111"): true,
+}
+
 func FromTransaction(solTx *solana.Transaction, staticAccountKeyCount int) (Transaction, error) {
 	tx := Transaction{
 		Message: Message{
@@ -35,10 +71,18 @@ func FromTransaction(solTx *solana.Transaction, staticAccountKeyCount int) (Tran
 		},
 		Signatures: solTx.Signatures,
 	}
+	calledAsProgram := make(map[uint16]bool, len(solTx.Message.Instructions))
+	for _, inst := range solTx.Message.Instructions {
+		calledAsProgram[inst.ProgramIDIndex] = true
+	}
+	hasUpgradeableLoader := slices.Contains(solTx.Message.AccountKeys, solana.BPFLoaderUpgradeableProgramID)
 	for i, accKey := range solTx.Message.AccountKeys {
 		isWr, err := solTx.IsWritable(accKey)
 		if err != nil {
 			return tx, fmt.Errorf("failed to check if account key #%d is writable: %w", i, err)
+		}
+		if reservedAccountKeys[accKey] || (calledAsProgram[uint16(i)] && !hasUpgradeableLoader) {
+			isWr = false
 		}
 		source := "transaction"
 		if staticAccountKeyCount > 0 && i >= staticAccountKeyCount {
@@ -55,6 +99,10 @@ func FromTransaction(solTx *solana.Transaction, staticAccountKeyCount int) (Tran
 		tx.Message.Instructions[i] = json.RawMessage(inst.Data)
 	}
 	tx.Message.RecentBlockhash = solTx.Message.RecentBlockhash.String()
+	if solTx.Message.GetVersion() == solana.MessageVersionV0 {
+		lookups := append(solana.MessageAddressTableLookupSlice{}, solTx.Message.AddressTableLookups...)
+		tx.Message.AddressTableLookups = &lookups
+	}
 	if solTx.Message.GetVersion() == solana.MessageVersionV1 {
 		cfg := solTx.Message.TransactionConfig
 		tx.Message.TransactionConfig = &cfg
