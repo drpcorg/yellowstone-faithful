@@ -521,10 +521,6 @@ func compiledInstructionsToJsonParsed(
 	meta *TransactionStatusMetaContainer,
 	stackHeight *uint32,
 ) (json.RawMessage, error) {
-	programId, err := tx.ResolveProgramIDIndex(inst.ProgramIDIndex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve program ID index: %w", err)
-	}
 	keys := tx.Message.AccountKeys
 
 	// Build complete account list including loaded accounts
@@ -535,6 +531,10 @@ func compiledInstructionsToJsonParsed(
 		allAccounts = append(allAccounts, writable...)
 		allAccounts = append(allAccounts, readonly...)
 	}
+	if int(inst.ProgramIDIndex) >= len(allAccounts) {
+		return nil, fmt.Errorf("failed to resolve program ID index: %d", inst.ProgramIDIndex)
+	}
+	programId := allAccounts[inst.ProgramIDIndex]
 
 	instrParams := jsonparsed.Parameters{
 		ProgramID: programId,
