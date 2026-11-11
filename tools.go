@@ -5,6 +5,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/gagliardetto/solana-go"
+	"github.com/sourcegraph/jsonrpc2"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 )
@@ -130,3 +132,21 @@ func rewardTypeStringToInt(typ string) int {
 const CodeNotFound = -32009
 const CodeSkipped = -32009
 const CodeNotAvailable = -32004
+const CodeUnsupportedTransactionVersion = -32015
+
+func checkTransactionVersion(tx *solana.Transaction, maxSupported *uint64) *jsonrpc2.Error {
+	var version uint64
+	switch tx.Message.GetVersion() {
+	case solana.MessageVersionLegacy:
+		return nil
+	case solana.MessageVersionV1:
+		version = 1
+	}
+	if maxSupported != nil && version <= *maxSupported {
+		return nil
+	}
+	return &jsonrpc2.Error{
+		Code:    CodeUnsupportedTransactionVersion,
+		Message: fmt.Sprintf("Transaction version (%d) is not supported by the requesting client. Please try the request again with the following configuration parameter: \"maxSupportedTransactionVersion\": %d", version, version),
+	}
+}

@@ -297,6 +297,9 @@ func (multi *MultiEpoch) handleGetBlock_car(ctx context.Context, conn *requestCo
 						if err != nil {
 							return fmt.Errorf("failed to decode transaction: %v", err)
 						}
+						if rpcErr := checkTransactionVersion(tx, params.Options.MaxSupportedTransactionVersion); rpcErr != nil {
+							return rpcErr
+						}
 
 						out := solanatxmetaparsers.NewEncodedTransactionWithStatusMeta(
 							tx,
@@ -318,6 +321,10 @@ func (multi *MultiEpoch) handleGetBlock_car(ctx context.Context, conn *requestCo
 						return nil
 					}()
 					if err != nil {
+						var rpcErr *jsonrpc2.Error
+						if errors.As(err, &rpcErr) {
+							return rpcErr, nil
+						}
 						return &jsonrpc2.Error{
 							Code:    jsonrpc2.CodeInternalError,
 							Message: "Internal error",

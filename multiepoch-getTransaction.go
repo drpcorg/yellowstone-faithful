@@ -215,6 +215,9 @@ func (multi *MultiEpoch) handleGetTransaction(ctx context.Context, conn *request
 			Message: "Internal error",
 		}, errctx.Wrap(fmt.Errorf("failed to decode transaction: %w", err), "GetTransaction_ParseTransactionMeta")
 	}
+	if rpcErr := checkTransactionVersion(tx, params.Options.MaxSupportedTransactionVersion); rpcErr != nil {
+		return rpcErr, nil
+	}
 	out := solanatxmetaparsers.NewEncodedTransactionWithStatusMeta(
 		tx,
 		meta,
